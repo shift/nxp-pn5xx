@@ -40,6 +40,10 @@
 #include <linux/regulator/consumer.h>
 #include <linux/of.h>
 
+#ifdef CONFIG_ACPI
+#include <linux/acpi.h>
+#endif
+
 #define MAX_BUFFER_SIZE	512
 
 #define MODE_OFF    0
@@ -50,10 +54,6 @@
 #define CHIP "pn544"
 #define DRIVER_CARD "PN54x NFC"
 #define DRIVER_DESC "NFC driver for PN54x Family"
-
-#ifndef CONFIG_OF
-#define CONFIG_OF
-#endif
 
 struct pn54x_dev	{
 	wait_queue_head_t read_wq;
@@ -497,6 +497,43 @@ static int pn54x_get_pdata(struct device *dev,
 
 	return 0;
 }
+#elif CONFIG_ACPI
+static int pn54x_get_pdata(struct device *dev,
+							struct pn544_i2c_platform_data *pdata)
+{
+	struct gpio_desc *irq_desc, *ven_desc;
+
+	/* ven pin - enable's power to the chip - REQUIRED */
+	irq_desc = devm_gpiod_get_index(dev, NULL, 0, GPIOD_ASIS);
+	if (IS_ERR(irq_desc)) {
+		dev_err(dev, "IRQ GPIO error getting from ACPI\n");
+		return PTR_ERR(irq_desc);
+	} 
+	pdata->irq_gpio = desc_to_gpio(irq_desc);
+	pr_info("%s: request irq_gpio %d\n", __func__, pdata->irq_gpio);
+
+	/* irq pin - data available irq - REQUIRED */
+	ven_desc = devm_gpiod_get_index(dev, NULL, 2, GPIOD_ASIS);
+	if (IS_ERR(ven_desc)) {
+		dev_err(dev, "VEN GPIO error getting from ACPI\n");
+		return PTR_ERR(ven_desc);
+	}
+	pdata->ven_gpio = desc_to_gpio(ven_desc);
+	pr_info("%s: request ven_gpio %d\n", __func__, pdata->ven_gpio);
+
+	/* firm pin - controls firmware download - OPTIONAL */
+	pdata->firm_gpio = GPIO_UNUSED;
+
+	/* clkreq pin - controls the clock to the PN547 - OPTIONAL */
+	pdata->clkreq_gpio = GPIO_UNUSED;
+
+	pdata->pvdd_reg = NULL;
+	pdata->vbat_reg = NULL;
+	pdata->pmuvcc_reg = NULL;
+	pdata->sevdd_reg = NULL;
+
+	return 0;
+}
 #else
 static int pn54x_get_pdata(struct device *dev,
 							struct pn544_i2c_platform_data *pdata)
@@ -528,6 +565,7 @@ static int pn54x_probe(struct i2c_client *client,
 	/* ---- retrieve the platform data ---- */
 	/* If the dev.platform_data is NULL, then */
 	/* attempt to read from the device tree */
+	/* or from ACPI */
 	if(!client->dev.platform_data)
 	{
 		ret = pn54x_get_pdata(&(client->dev), &tmp_pdata);
@@ -553,6 +591,8 @@ static int pn54x_probe(struct i2c_client *client,
 		return  -ENODEV;
 	}
 
+/* if ACPI config is used, the GPIO pins are already reserved */
+#ifndef CONFIG_ACPI
 	/* reserve the GPIO pins */
 	pr_info("%s: request irq_gpio %d\n", __func__, pdata->irq_gpio);
 	ret = gpio_request(pdata->irq_gpio, "nfc_int");
@@ -593,6 +633,7 @@ static int pn54x_probe(struct i2c_client *client,
 			goto err_clkreq;
 		}
 	}
+#endif
 
 	/* allocate the pn54x driver information structure */
 	pn54x_dev = kzalloc(sizeof(*pn54x_dev), GFP_KERNEL);
@@ -683,6 +724,7 @@ err_misc_register:
 err_exit:
 	if (gpio_is_valid(pdata->clkreq_gpio))
 		gpio_free(pdata->clkreq_gpio);
+#ifndef CONFIG_ACPI
 err_clkreq:
 	if (gpio_is_valid(pdata->firm_gpio))
 		gpio_free(pdata->firm_gpio);
@@ -690,6 +732,7 @@ err_firm:
 	gpio_free(pdata->ven_gpio);
 err_ven:
 	gpio_free(pdata->irq_gpio);
+#endif
 	return ret;
 }
 
@@ -741,6 +784,15 @@ static const struct i2c_device_id pn54x_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, pn54x_id);
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id pn54x_acpi_match[] = {
+        { "NXP1001", 0},
+        { },
+};
+MODULE_DEVICE_TABLE(acpi, pn54x_acpi_match);
+#endif
+
+
 static struct i2c_driver pn54x_driver = {
 	.id_table	= pn54x_id,
 	.probe		= pn54x_probe,
@@ -752,7 +804,12 @@ static struct i2c_driver pn54x_driver = {
 	.driver		= {
 		.owner	= THIS_MODULE,
 		.name	= "pn544",
+#ifdef CONFIG_OF
 		.of_match_table = pn54x_dt_match,
+#endif
+#ifdef CONFIG_ACPI
+		.acpi_match_table = ACPI_PTR(pn54x_acpi_match),
+#endif
 	},
 };
 
