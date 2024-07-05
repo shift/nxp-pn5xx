@@ -39,6 +39,8 @@
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/of.h>
+#include <linux/printk.h>
+#include <linux/version.h>
 
 #ifdef CONFIG_ACPI
 #include <linux/acpi.h>
@@ -238,7 +240,11 @@ static ssize_t pn54x_dev_read(struct file *filp, char __user *buf,
 			if (gpio_get_value(pn54x_dev->irq_gpio))
 				break;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
 			pr_warning("%s: spurious interrupt detected\n", __func__);
+#else
+			pr_warn("%s: spurious interrupt detected\n", __func__);
+#endif
 		}
 	}
 
@@ -261,7 +267,11 @@ static ssize_t pn54x_dev_read(struct file *filp, char __user *buf,
 		return -EIO;
 	}
 	if (copy_to_user(buf, tmp, ret)) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
 		pr_warning("%s : failed to copy to user space\n", __func__);
+#else
+		pr_warn("%s : failed to copy to user space\n", __func__);
+#endif
 		return -EFAULT;
 	}
 	return ret;
@@ -547,12 +557,14 @@ static int pn54x_get_pdata(struct device *dev,
 /*
  * pn54x_probe
  */
-#ifdef KERNEL_3_4_AND_OLDER
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,4,0)
  static int __devinit pn54x_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6,3,0)
 static int pn54x_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
+#else
+static int pn54x_probe(struct i2c_client *client)
 #endif
 {
 	int ret;
@@ -736,10 +748,12 @@ err_ven:
 	return ret;
 }
 
-#ifdef KERNEL_3_4_AND_OLDER
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,4,0)
 static int __devexit pn54x_remove(struct i2c_client *client)
-#else
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(6,1,0)
 static int pn54x_remove(struct i2c_client *client)
+#else
+static void pn54x_remove(struct i2c_client *client)
 #endif
 {
 	struct pn54x_dev *pn54x_dev;
@@ -763,7 +777,9 @@ static int pn54x_remove(struct i2c_client *client)
 
 	kfree(pn54x_dev);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,1,0)
 	return 0;
+#endif
 }
 
 /*
@@ -796,7 +812,7 @@ MODULE_DEVICE_TABLE(acpi, pn54x_acpi_match);
 static struct i2c_driver pn54x_driver = {
 	.id_table	= pn54x_id,
 	.probe		= pn54x_probe,
-#ifdef KERNEL_3_4_AND_OLDER
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,4,0)
 	.remove		= __devexit_p(pn54x_remove),
 #else
 	.remove		= pn54x_remove,
