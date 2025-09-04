@@ -634,32 +634,42 @@ static int pn54x_probe(struct i2c_client *client)
 		return  -ENODEV;
 	}
 
-	/* if ACPI config is used, the GPIO pins are already reserved */
+	/* try to get GPIO descriptors (preferred) */
+	pn54x_dev->irq_gpiod = devm_gpiod_get_optional(&client->dev, "interrupt", GPIOD_IN);
+	pn54x_dev->ven_gpiod = devm_gpiod_get_optional(&client->dev, "enable", GPIOD_OUT_LOW);
+	pn54x_dev->firm_gpiod = devm_gpiod_get_optional(&client->dev, "firmware", GPIOD_OUT_LOW);
+	pn54x_dev->clkreq_gpiod = devm_gpiod_get_optional(&client->dev, "nxp,pn54x-clkreq", GPIOD_OUT_LOW);
+
+	/* if ACPI config is used, the GPIO pins are already reserved; if gpiods are not provided, fallback to legacy */
 	if(!is_acpi) {
-		/* reserve the GPIO pins */
-		pr_info("%s: request irq_gpio %d\n", __func__, pdata->irq_gpio);
-		ret = gpio_request(pdata->irq_gpio, "nfc_int");
-		if (ret){
-			pr_err("%s: not able to get GPIO irq_gpio\n", __func__);
-			return  -ENODEV;
-		}
-		ret = gpio_to_irq(pdata->irq_gpio);
-		if (ret < 0){
-			pr_err("%s: not able to map GPIO irq_gpio to an IRQ\n", __func__);
-			goto err_ven;
-		}
-		else{
-			client->irq = ret;
-		}
-
-		pr_info("%s: request ven_gpio %d\n", __func__, pdata->ven_gpio);
-		ret = gpio_request(pdata->ven_gpio, "nfc_ven");
-		if (ret){
-			pr_err("%s: not able to get GPIO ven_gpio\n", __func__);
-			goto err_ven;
+		/* reserve legacy GPIOs only when no descriptors available */
+		if (!pn54x_dev->irq_gpiod) {
+			pr_info("%s: request irq_gpio %d\n", __func__, pdata->irq_gpio);
+			ret = gpio_request(pdata->irq_gpio, "nfc_int");
+			if (ret){
+				pr_err("%s: not able to get GPIO irq_gpio\n", __func__);
+				return  -ENODEV;
+			}
+			ret = gpio_to_irq(pdata->irq_gpio);
+			if (ret < 0){
+				pr_err("%s: not able to map GPIO irq_gpio to an IRQ\n", __func__);
+				goto err_ven;
+			}
+			else{
+				client->irq = ret;
+			}
 		}
 
-		if (gpio_is_valid(pdata->firm_gpio)) {
+		if (!pn54x_dev->ven_gpiod) {
+			pr_info("%s: request ven_gpio %d\n", __func__, pdata->ven_gpio);
+			ret = gpio_request(pdata->ven_gpio, "nfc_ven");
+			if (ret){
+				pr_err("%s: not able to get GPIO ven_gpio\n", __func__);
+				goto err_ven;
+			}
+		}
+
+		if (!pn54x_dev->firm_gpiod && gpio_is_valid(pdata->firm_gpio)) {
 			pr_info("%s: request firm_gpio %d\n", __func__, pdata->firm_gpio);
 			ret = gpio_request(pdata->firm_gpio, "nfc_firm");
 			if (ret){
@@ -668,7 +678,7 @@ static int pn54x_probe(struct i2c_client *client)
 			}
 		}
 
-		if (gpio_is_valid(pdata->clkreq_gpio)) {
+		if (!pn54x_dev->clkreq_gpiod && gpio_is_valid(pdata->clkreq_gpio)) {
 			pr_info("%s: request clkreq_gpio %d\n", __func__, pdata->clkreq_gpio);
 			ret = gpio_request(pdata->clkreq_gpio, "nfc_clkreq");
 			if (ret){
