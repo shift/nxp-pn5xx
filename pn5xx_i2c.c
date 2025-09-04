@@ -327,7 +327,7 @@ static int pn54x_dev_open(struct inode *inode, struct file *filp)
 
 	pr_info("%s : %d,%d\n", __func__, imajor(inode), iminor(inode));
 
-	// pn544_enable(pn54x_dev, MODE_RUN);
+	pn544_enable(pn54x_dev, MODE_RUN);
 
 	return 0;
 }
@@ -340,7 +340,7 @@ static int pn54x_dev_release(struct inode *inode, struct file *filp)
 
 	pr_info("%s : closing %d,%d\n", __func__, imajor(inode), iminor(inode));
 
-	// pn544_disable(pn54x_dev);
+	pn544_disable(pn54x_dev);
 
 	return 0;
 }
@@ -749,13 +749,16 @@ static int pn54x_probe(struct i2c_client *client)
 	 */
 	pr_info("%s : requesting IRQ %d\n", __func__, client->irq);
 	pn54x_dev->irq_enabled = true;
-	ret = request_irq(client->irq, pn54x_dev_irq_handler,
-				IRQF_TRIGGER_HIGH, client->name, pn54x_dev);
+	ret = devm_request_threaded_irq(&client->dev, client->irq, NULL, pn54x_dev_irq_handler,
+				IRQF_ONESHOT | IRQF_TRIGGER_HIGH, client->name, pn54x_dev);
 	if (ret) {
 		dev_err(&client->dev, "request_irq failed\n");
 		goto err_request_irq_failed;
 	}
 	pn54x_disable_irq(pn54x_dev);
+
+	device_init_wakeup(&client->dev, true);
+	enable_irq_wake(client->irq);
 
 	i2c_set_clientdata(client, pn54x_dev);
 
