@@ -41,6 +41,8 @@
 #include <linux/printk.h>
 #include <linux/version.h>
 #include <linux/pm.h>
+#include <linux/pm_runtime.h>
+#include <linux/rfkill.h>
 
 #include <linux/of.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
@@ -77,6 +79,8 @@ struct pn54x_dev	{
 	struct regulator *sevdd_reg;
 	bool irq_enabled;
 	spinlock_t irq_enabled_lock;
+	struct rfkill *rfk;
+	bool rfkill_blocked;
 };
 
 /**********************************************************
@@ -775,6 +779,21 @@ static int pn54x_probe(struct i2c_client *client)
 	pm_runtime_use_autosuspend(&client->dev);
 	pm_runtime_enable(&client->dev);
 
+	pn54x_dev->rfk = rfkill_alloc("pn5xx-nfc", &client->dev, RFKILL_TYPE_NFC, &pn54x_rfkill_ops, pn54x_dev);
+	if (IS_ERR_OR_NULL(pn54x_dev->rfk)) {
+		dev_warn(&client->dev, "rfkill alloc failed\n");
+		pn54x_dev->rfk = NULL;
+	} else {
+		ret = rfkill_register(pn54x_dev->rfk);
+		if (ret) {
+			rfkill_destroy(pn54x_dev->rfk);
+			pn54x_dev->rfk = NULL;
+		} else {
+			rfkill_set_sw_state(pn54x_dev->rfk, false);
+			pn54x_dev->rfkill_blocked = false;
+		}
+	}
+
 	i2c_set_clientdata(client, pn54x_dev);
 
 	return 0;
@@ -815,6 +834,10 @@ static void pn54x_remove(struct i2c_client *client)
 	disable_irq_wake(client->irq);
 	device_init_wakeup(&client->dev, false);
 	pm_runtime_disable(&client->dev);
+	if (pn54x_dev->rfk) {
+		rfkill_unregister(pn54x_dev->rfk);
+		rfkill_destroy(pn54x_dev->rfk);
+	}
 	misc_deregister(&pn54x_dev->pn54x_device);
 	mutex_destroy(&pn54x_dev->read_mutex);
 	gpio_free(pn54x_dev->irq_gpio);
@@ -858,6 +881,21 @@ MODULE_DEVICE_TABLE(acpi, pn54x_acpi_match);
 #endif
 
 
+static int pn54x_rfkill_set_block(void *data, bool blocked)
+{
+	struct pn54x_dev *pn54x_dev = data;
+	pn54x_dev->rfkill_blocked = blocked;
+	if (blocked) {
+		pn544_disable(pn54x_dev);
+		return 0;
+	}
+	return pn544_enable(pn54x_dev, MODE_RUN);
+}
+
+static const struct rfkill_ops pn54x_rfkill_ops = {
+	.set_block = pn54x_rfkill_set_block,
+};
+
 static int pn54x_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -870,6 +908,8 @@ static int pn54x_resume(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct pn54x_dev *pn54x_dev = i2c_get_clientdata(client);
+	if (pn54x_dev->rfkill_blocked)
+		return 0;
 	return pn544_enable(pn54x_dev, MODE_RUN);
 }
 
