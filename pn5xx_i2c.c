@@ -33,14 +33,18 @@
 #include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/miscdevice.h>
 #include <linux/spinlock.h>
 #include <linux/regulator/consumer.h>
 #include <linux/printk.h>
 #include <linux/version.h>
+#include <linux/pm.h>
 
 #include <linux/of.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
 #include <linux/of_gpio.h>
+#endif
 #include <linux/acpi.h>
 
 #include "pn5xx_i2c.h"
@@ -539,7 +543,7 @@ static int pn54x_get_pdata_acpi(struct device *dev,
 	if (IS_ERR(irq_desc)) {
 		dev_err(dev, "IRQ GPIO error getting from ACPI\n");
 		return PTR_ERR(irq_desc);
-	} 
+	}
 	pdata->irq_gpio = desc_to_gpio(irq_desc);
 	pr_info("%s: request irq_gpio %d\n", __func__, pdata->irq_gpio);
 
@@ -549,7 +553,11 @@ static int pn54x_get_pdata_acpi(struct device *dev,
 		dev_err(dev, "VEN GPIO error getting from ACPI\n");
 		return PTR_ERR(ven_desc);
 	}
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,13,0)
 	pdata->ven_gpio = desc_to_gpio(ven_desc);
+#else
+	pdata->ven_gpio = gpiod_get_value_cansleep(ven_desc) >= 0 ? desc_to_gpio(ven_desc) : -EINVAL;
+#endif
 	pr_info("%s: request ven_gpio %d\n", __func__, pdata->ven_gpio);
 
 	/* firm pin - controls firmware download - OPTIONAL */
@@ -834,6 +842,25 @@ MODULE_DEVICE_TABLE(acpi, pn54x_acpi_match);
 #endif
 
 
+static int pn54x_suspend(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct pn54x_dev *pn54x_dev = i2c_get_clientdata(client);
+	pn544_disable(pn54x_dev);
+	return 0;
+}
+
+static int pn54x_resume(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct pn54x_dev *pn54x_dev = i2c_get_clientdata(client);
+	return pn544_enable(pn54x_dev, MODE_RUN);
+}
+
+static const struct dev_pm_ops pn54x_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(pn54x_suspend, pn54x_resume)
+};
+
 static struct i2c_driver pn54x_driver = {
 	.id_table	= pn54x_id,
 	.probe		= pn54x_probe,
@@ -851,6 +878,7 @@ static struct i2c_driver pn54x_driver = {
 #ifdef CONFIG_ACPI
 		.acpi_match_table = ACPI_PTR(pn54x_acpi_match),
 #endif
+		.pm	= &pn54x_pm_ops,
 	},
 };
 
