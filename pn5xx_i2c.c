@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2010 Trusted Logic S.A.
  * modifications copyright (C) 2015 NXP B.V.
