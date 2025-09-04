@@ -760,6 +760,10 @@ static int pn54x_probe(struct i2c_client *client)
 	device_init_wakeup(&client->dev, true);
 	enable_irq_wake(client->irq);
 
+	pm_runtime_set_autosuspend_delay(&client->dev, 3000);
+	pm_runtime_use_autosuspend(&client->dev);
+	pm_runtime_enable(&client->dev);
+
 	i2c_set_clientdata(client, pn54x_dev);
 
 	return 0;
