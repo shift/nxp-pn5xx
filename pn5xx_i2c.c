@@ -504,25 +504,25 @@ static int pn54x_get_pdata_of(struct device *dev,
 	 * Example: if only PVdd is provided, it is the only one that will be
 	 *  turned on/off.
 	 */
-	pdata->pvdd_reg = regulator_get(dev, "nxp,pn54x-pvdd");
+	pdata->pvdd_reg = devm_regulator_get(dev, "nxp,pn54x-pvdd");
 	if(IS_ERR(pdata->pvdd_reg)) {
 		pr_err("%s: could not get nxp,pn54x-pvdd, rc=%ld\n", __func__, PTR_ERR(pdata->pvdd_reg));
 		pdata->pvdd_reg = NULL;
 	}
 
-	pdata->vbat_reg = regulator_get(dev, "nxp,pn54x-vbat");
+	pdata->vbat_reg = devm_regulator_get(dev, "nxp,pn54x-vbat");
 	if (IS_ERR(pdata->vbat_reg)) {
 		pr_err("%s: could not get nxp,pn54x-vbat, rc=%ld\n", __func__, PTR_ERR(pdata->vbat_reg));
 		pdata->vbat_reg = NULL;
 	}
 
-	pdata->pmuvcc_reg = regulator_get(dev, "nxp,pn54x-pmuvcc");
+	pdata->pmuvcc_reg = devm_regulator_get(dev, "nxp,pn54x-pmuvcc");
 	if (IS_ERR(pdata->pmuvcc_reg)) {
 		pr_err("%s: could not get nxp,pn54x-pmuvcc, rc=%ld\n", __func__, PTR_ERR(pdata->pmuvcc_reg));
 		pdata->pmuvcc_reg = NULL;
 	}
 
-	pdata->sevdd_reg = regulator_get(dev, "nxp,pn54x-sevdd");
+	pdata->sevdd_reg = devm_regulator_get(dev, "nxp,pn54x-sevdd");
 	if (IS_ERR(pdata->sevdd_reg)) {
 		pr_err("%s: could not get nxp,pn54x-sevdd, rc=%ld\n", __func__, PTR_ERR(pdata->sevdd_reg));
 		pdata->sevdd_reg = NULL;
@@ -801,7 +801,9 @@ static void pn54x_remove(struct i2c_client *client)
 	pr_info("%s\n", __func__);
 
 	pn54x_dev = i2c_get_clientdata(client);
-	free_irq(client->irq, pn54x_dev);
+	disable_irq_wake(client->irq);
+	device_init_wakeup(&client->dev, false);
+	pm_runtime_disable(&client->dev);
 	misc_deregister(&pn54x_dev->pn54x_device);
 	mutex_destroy(&pn54x_dev->read_mutex);
 	gpio_free(pn54x_dev->irq_gpio);
@@ -810,10 +812,6 @@ static void pn54x_remove(struct i2c_client *client)
 		gpio_free(pn54x_dev->firm_gpio);
 	if (gpio_is_valid(pn54x_dev->clkreq_gpio))
 		gpio_free(pn54x_dev->clkreq_gpio);
-	regulator_put(pn54x_dev->pvdd_reg);
-	regulator_put(pn54x_dev->vbat_reg);
-	regulator_put(pn54x_dev->pmuvcc_reg);
-	regulator_put(pn54x_dev->sevdd_reg);
 
 	kfree(pn54x_dev);
 
@@ -864,8 +862,35 @@ static int pn54x_resume(struct device *dev)
 	return pn544_enable(pn54x_dev, MODE_RUN);
 }
 
+static int pn54x_freeze(struct device *dev) { return pn54x_suspend(dev); }
+static int pn54x_thaw(struct device *dev) { return pn54x_resume(dev); }
+static int pn54x_poweroff(struct device *dev) { return pn54x_suspend(dev); }
+static int pn54x_restore(struct device *dev) { return pn54x_resume(dev); }
+
+static int pn54x_runtime_suspend(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct pn54x_dev *pn54x_dev = i2c_get_clientdata(client);
+	pn544_disable(pn54x_dev);
+	return 0;
+}
+
+static int pn54x_runtime_resume(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct pn54x_dev *pn54x_dev = i2c_get_clientdata(client);
+	return pn544_enable(pn54x_dev, MODE_RUN);
+}
+
 static const struct dev_pm_ops pn54x_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(pn54x_suspend, pn54x_resume)
+	.suspend = pn54x_suspend,
+	.resume = pn54x_resume,
+	.freeze = pn54x_freeze,
+	.thaw = pn54x_thaw,
+	.poweroff = pn54x_poweroff,
+	.restore = pn54x_restore,
+	.runtime_suspend = pn54x_runtime_suspend,
+	.runtime_resume = pn54x_runtime_resume,
 };
 
 static struct i2c_driver pn54x_driver = {
