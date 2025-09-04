@@ -368,6 +368,8 @@ static int pn54x_dev_release(struct inode *inode, struct file *filp)
 	//										   struct pn54x_dev,
 	//										   pn54x_device);
 
+	struct pn54x_dev *pn54x_dev = filp->private_data;
+
 	pr_info("%s : closing %d,%d\n", __func__, imajor(inode), iminor(inode));
 
 	if (pn54x_dev) {
