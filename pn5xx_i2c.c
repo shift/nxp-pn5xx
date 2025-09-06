@@ -650,9 +650,8 @@ static int pn54x_probe(struct i2c_client *client)
 	struct pn544_i2c_platform_data tmp_pdata;
 	struct pn54x_dev *pn54x_dev; // internal device specific data
 
-	pr_info("%s\n", __func__);
+	pr_info("%s addr=0x%02x adapter=%d name=%s plat=%p acpi=%p of=%p\n", __func__, client->addr, client->adapter ? client->adapter->nr : -1, client->name, client->dev.platform_data, ACPI_HANDLE(&client->dev), client->dev.of_node);
 
-	// If the dev.platform_data is NULL, then attempt to read from ACPI first, then the device tree
 	bool is_acpi = false;
 	pdata = client->dev.platform_data;
 
@@ -661,8 +660,9 @@ static int pn54x_probe(struct i2c_client *client)
 #ifdef CONFIG_ACPI
 		if (ACPI_HANDLE(&client->dev)) {
 			is_acpi = true;
-			pr_info("%s: configuring via ACPI\n", __func__);
+			pr_info("%s: attempting ACPI config (_HID present)\n", __func__);
 			ret = pn54x_get_pdata_acpi(&(client->dev), &tmp_pdata);
+			pr_info("%s: ACPI pdata ret=%d irq=%d ven=%d firm=%d clkreq=%d\n", __func__, ret, tmp_pdata.irq_gpio, tmp_pdata.ven_gpio, tmp_pdata.firm_gpio, tmp_pdata.clkreq_gpio);
 		}
 #endif
 #ifdef CONFIG_OF
@@ -670,15 +670,18 @@ static int pn54x_probe(struct i2c_client *client)
 		if ((!is_acpi || ret) && client->dev.of_node) {
 			pr_info("%s: configuring via device tree\n", __func__);
 			ret = pn54x_get_pdata_of(&(client->dev), &tmp_pdata);
+			pr_info("%s: DT pdata ret=%d irq=%d ven=%d firm=%d clkreq=%d\n", __func__, ret, tmp_pdata.irq_gpio, tmp_pdata.ven_gpio, tmp_pdata.firm_gpio, tmp_pdata.clkreq_gpio);
 		}
 #endif
 
 		if(ret) {
+			pr_err("%s: platform data fetch failed ret=%d is_acpi=%d\n", __func__, ret, is_acpi);
 			return ret;
 		}
 
 		pdata = &tmp_pdata;
 	}
+	pr_info("%s: final pdata irq=%d ven=%d firm=%d clkreq=%d is_acpi=%d\n", __func__, pdata->irq_gpio, pdata->ven_gpio, pdata->firm_gpio, pdata->clkreq_gpio, is_acpi);
 
 	if (pdata == NULL) {
 		pr_err("%s: nfc probe fail\n", __func__);
