@@ -703,22 +703,24 @@ static int pn54x_probe(struct i2c_client *client)
 	}
 	pn54x_dev->client = client;
 
-	/* try to get GPIO descriptors (preferred) */
+	/* try to get GPIO descriptors only; legacy GPIO API removed */
 	pn54x_dev->irq_gpiod = devm_gpiod_get_optional(&client->dev, "interrupt", GPIOD_IN);
 	pn54x_dev->ven_gpiod = devm_gpiod_get_optional(&client->dev, "enable", GPIOD_OUT_LOW);
 	pn54x_dev->firm_gpiod = devm_gpiod_get_optional(&client->dev, "firmware", GPIOD_OUT_LOW);
 	pn54x_dev->clkreq_gpiod = devm_gpiod_get_optional(&client->dev, "nxp,pn54x-clkreq", GPIOD_OUT_LOW);
 
-	if (pn54x_dev->irq_gpiod) {
-		ret = gpiod_to_irq(pn54x_dev->irq_gpiod);
-		if (ret < 0) {
-			dev_err(&client->dev, "failed to map IRQ from gpiod\n");
-			goto err_exit;
-		}
-		client->irq = ret;
+	if (!pn54x_dev->irq_gpiod || !pn54x_dev->ven_gpiod) {
+		ret = dev_err_probe(&client->dev, -EINVAL, "required GPIOs missing\n");
+		goto err_exit;
 	}
+	ret = gpiod_to_irq(pn54x_dev->irq_gpiod);
+	if (ret < 0) {
+		ret = dev_err_probe(&client->dev, ret, "failed to map IRQ\n");
+		goto err_exit;
+	}
+	client->irq = ret;
 
-	/* if ACPI config is used, the GPIO pins are already reserved; if gpiods are not provided, fallback to legacy */
+	/* legacy GPIO request path removed */
 	if(!is_acpi) {
 		/* reserve legacy GPIOs only when no descriptors available */
 		if (!pn54x_dev->irq_gpiod) {
@@ -776,39 +778,12 @@ static int pn54x_probe(struct i2c_client *client)
 	pn54x_dev->pmuvcc_reg = pdata->pmuvcc_reg;
 	pn54x_dev->sevdd_reg = pdata->sevdd_reg;
 
-	if (!pn54x_dev->irq_gpiod) {
-		ret = gpio_direction_input(pn54x_dev->irq_gpio);
-		if (ret < 0) {
-			pr_err("%s :not able to set irq_gpio as input\n", __func__);
-			goto err_exit;
-		}
-	}
-
-	if (!pn54x_dev->ven_gpiod) {
-		ret = gpio_direction_output(pn54x_dev->ven_gpio, 0);
-		if (ret < 0) {
-			pr_err("%s : not able to set ven_gpio as output\n", __func__);
-			goto err_exit;
-		}
-	}
-
-	if (!pn54x_dev->firm_gpiod && gpio_is_valid(pn54x_dev->firm_gpio)) {
-		ret = gpio_direction_output(pn54x_dev->firm_gpio, 0);
-		if (ret < 0) {
-			pr_err("%s : not able to set firm_gpio as output\n",
-				 __func__);
-			goto err_exit;
-		}
-	}
-
-	if (!pn54x_dev->clkreq_gpiod && gpio_is_valid(pn54x_dev->clkreq_gpio)) {
-		ret = gpio_direction_output(pn54x_dev->clkreq_gpio, 0);
-		if (ret < 0) {
-			pr_err("%s : not able to set clkreq_gpio as output\n",
-				   __func__);
-			goto err_exit;
-		}
-	}
+	gpiod_direction_input(pn54x_dev->irq_gpiod);
+	gpiod_direction_output(pn54x_dev->ven_gpiod, 0);
+	if (pn54x_dev->firm_gpiod)
+		gpiod_direction_output(pn54x_dev->firm_gpiod, 0);
+	if (pn54x_dev->clkreq_gpiod)
+		gpiod_direction_output(pn54x_dev->clkreq_gpiod, 0);
 
 	/* init mutex and queues */
 	init_waitqueue_head(&pn54x_dev->read_wq);
