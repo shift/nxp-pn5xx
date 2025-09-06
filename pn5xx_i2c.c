@@ -158,39 +158,57 @@ static int pn544_enable(struct pn54x_dev *dev, int mode)
 
 	if (MODE_RUN == mode) {
 		pr_info("%s power on\n", __func__);
-		if (dev->firm_gpiod)
+		if (dev->firm_gpiod) {
 			gpiod_set_value_cansleep(dev->firm_gpiod, 0);
-		else if (gpio_is_valid(dev->firm_gpio))
+			pr_info("%s firm_gpiod -> 0\n", __func__);
+		} else if (gpio_is_valid(dev->firm_gpio)) {
 			gpio_set_value_cansleep(dev->firm_gpio, 0);
-		if (dev->ven_gpiod)
+			pr_info("%s firm_gpio %d -> 0\n", __func__, dev->firm_gpio);
+		}
+		if (dev->ven_gpiod) {
 			gpiod_set_value_cansleep(dev->ven_gpiod, 1);
-		else
+			pr_info("%s ven_gpiod -> 1\n", __func__);
+		} else {
 			gpio_set_value_cansleep(dev->ven_gpio, 1);
+			pr_info("%s ven_gpio %d -> 1\n", __func__, dev->ven_gpio);
+		}
 		msleep(100);
 	}
 	else if (MODE_FW == mode) {
 		pr_info("%s power on with firmware\n", __func__);
-		if (dev->ven_gpiod)
+		if (dev->ven_gpiod) {
 			gpiod_set_value(dev->ven_gpiod, 1);
-		else
+			pr_info("%s ven_gpiod -> 1 (fw)\n", __func__);
+		} else {
 			gpio_set_value(dev->ven_gpio, 1);
+			pr_info("%s ven_gpio %d -> 1 (fw)\n", __func__, dev->ven_gpio);
+		}
 		msleep(20);
-		if (dev->firm_gpiod)
+		if (dev->firm_gpiod) {
 			gpiod_set_value(dev->firm_gpiod, 1);
-		else if (gpio_is_valid(dev->firm_gpio))
+			pr_info("%s firm_gpiod -> 1 (fw)\n", __func__);
+		} else if (gpio_is_valid(dev->firm_gpio)) {
 			gpio_set_value(dev->firm_gpio, 1);
-		else
+			pr_info("%s firm_gpio %d -> 1 (fw)\n", __func__, dev->firm_gpio);
+		} else {
 			return GPIO_UNUSED;
+		}
 		msleep(20);
-		if (dev->ven_gpiod)
+		if (dev->ven_gpiod) {
 			gpiod_set_value(dev->ven_gpiod, 0);
-		else
+			pr_info("%s ven_gpiod -> 0 (fw)\n", __func__);
+		} else {
 			gpio_set_value(dev->ven_gpio, 0);
+			pr_info("%s ven_gpio %d -> 0 (fw)\n", __func__, dev->ven_gpio);
+		}
 		msleep(100);
-		if (dev->ven_gpiod)
+		if (dev->ven_gpiod) {
 			gpiod_set_value(dev->ven_gpiod, 1);
-		else
+			pr_info("%s ven_gpiod -> 1 (fw final)\n", __func__);
+		} else {
 			gpio_set_value(dev->ven_gpio, 1);
+			pr_info("%s ven_gpio %d -> 1 (fw final)\n", __func__, dev->ven_gpio);
+		}
 		msleep(20);
 	}
 	else {
